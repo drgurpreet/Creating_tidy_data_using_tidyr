@@ -1,0 +1,182 @@
+# Introduction ------------------------------------------------------------
+
+#what is tidy data?
+#Data which follows three principles
+#1. one column for one variable
+#2. one row for one observation
+#3. one value in one cell
+
+#why is it important to tidy data?
+#1. since R is a vectorised language, working with tidy data 
+#is most efficient way.. 
+#2. it makes it easier to learn the tools/ packages because
+#data is analysed in a consistent format..
+
+#Load package tidyverse. tidyr is part of tidyverse metapackage and works with other 
+#packages such as dplyr and ggplot2 which are also part of tidyverse
+library(tidyverse)
+
+#Note. For this code, we will use the dataset "who" which is WHO TB data
+#from WHO Global TB report and is an inbuilt dataset in R
+
+#to understand dataset
+who
+#use help function, summary(), head(), etc to understand dataset further 
+#?who
+
+# Structure of the code ---------------------------------------------------
+
+#main functions in tidyr package elaborated in this code...
+#1. gather()
+#2. spread()
+#3. separate()
+#4. unite()
+#5. complete()
+#6. fill()
+
+# Understanding gather() --------------------------------------------------
+#gather function formulates "key value pairs" from multiple columns
+#value = column of number of cases (value) 
+#key = column representing type/ categories
+(who_gather = who %>% 
+  gather(new_sp_m014:newrel_f65, #multiple columns which need to be gathered
+         value = "cases", #new column mentioning values
+         key = "type_of_tb",#new column mentioning categories
+         na.rm = FALSE, #to keep NA. use TRUE to remove NAs from output
+         convert = FALSE,#use TRUE when multiple types of data in multiple columns
+         factor_key = TRUE) %>% #to keep key as categorical, else key will be character
+   arrange(desc(cases)) %>% #to arrange number of cases in descending order
+   select(country, type_of_tb, cases, everything()))#to see new variables in starting of dataframe
+
+
+# Understanding spread() --------------------------------------------------
+#spread function is opposite of gather()
+#it is used to create multiple columns from "key-value pairs"
+# To understand further, lets take type_of_tb and cases as key and value columns
+(who_spread = #new dataframe to be made
+  who_gather %>% #dataframe to be used
+  spread(key = "type_of_tb",#key column
+         value = "cases",#value column
+         fill = NA,#value to be filled for missing values
+         convert = FALSE,#useful when value column has mixed type of values (eg string as well as numeric)
+         sep = NULL))#if non NULL, new column names will be given by <key label><sep><key value>
+
+
+
+# Understanding separate() ------------------------------------------------
+#separate function creates multiple columns from a single column
+#as per separator (sep) mentioned in the function
+
+#lets see who_gather dataset to understand further.. 
+who_gather$type_of_tb[1:10]
+#"type_of_tb" column represensts multiple variables in a single column, 
+#whether new or old case
+#sputum positive sp, or sputum negative sn or extra-pulmonary ep
+#male m or female f
+#age group014, 0-14yrs; 1524 15-24 yrs etc #use ?who for details
+
+#to separate whether new or old case, sputum positive or not, etc
+(who_separate = #creating a new dataframe
+    who_gather %>% #dataframe to be used
+    mutate(type_of_tb = stringr::str_replace(type_of_tb, "newrel", "new_rel")) %>% #cleaning data..
+  separate(type_of_tb, #column which needs to be separated
+           into = c("new_old",#new columns to be made
+                    "sp_sn_ep",
+                    "sex"),
+           sep = "_", #separator to be used
+           remove = TRUE, #to remove input column from output, 
+           #use FALSE to keep input column also in output
+           convert = TRUE, #TRUE when multiple types of data into multiple columns
+           extra = "warn", #gives a warning when sep is a character and there is missing separator
+           #, "right"/ "left" fill with missing value on the right/ left respectively
+           fill = "warn"))#used to fill missing values.. right/left arguments to fill missing value by last value on right/left respectively
+           
+#now we are left with sex and age to be separated into two columns
+(who_separate1 = who_separate %>% #dataframe to be worked upon
+  separate(sex, #column to be separated
+           into = c("sex", "age_group"), #new columns to be created
+           sep = 1, #use of location to separate, starts at 1 from left and -1 from right
+           remove = TRUE, convert = TRUE, extra = "warn", fill = "warn"))
+
+#similarly, we can use separate function for separating numeric values also
+(who_separate2 = who_separate1 %>% 
+  separate(year, 
+           into = c("century", "nth_year"), 
+           sep = 2,
+           remove = TRUE, convert = TRUE, extra = "warn", fill = "warn") %>% 
+    select("century", "nth_year", everything()))
+
+
+
+# Understanding unite() ---------------------------------------------------
+#unite is reverse of separate
+#it unites multiple columns into a single column
+#To understand further, lets create year column from century and 
+#nth_year columns in who_separate2 dataframe
+(who_unite = #dataframe to be created
+  who_separate2 %>% #dataframe to be worked upon
+  unite("year", #new column name/label
+        "century", "nth_year",#columns to be united
+        sep = "_",#to keep no separator use "" 
+        remove = T))#remove input columns in output file when true
+
+
+# Understanding complete() ------------------------------------------------
+#Missing values are of two types
+#explicit which are tagged as NA or a specified value in the dataframe
+#implicit which are supposed to be there but are not present
+#implicit missing values need to be identified in the dataframe for 
+#accurate analysis later
+#thus, we need to convert implicit missing values explicit while tidying the data
+#There are two ways of making implicit values explicit
+#01. use of function na.rm = FALSE while using gather()
+#02. use of complete()
+
+
+#to understand further, lets look at who dataset again
+#looking for explicit missing values in year column
+summary(who$year)
+#No missing values are explicit.. 
+
+#using complete() to make implicit missing values explicit
+who1 = 
+  who %>% 
+  complete(country, year,
+           fill = list(9999))
+
+#looking for any differences in who and who1 datasets
+dim(who)
+dim(who1)
+
+#lets see why there has been change in number of rows
+#Since it is a worldwide data.. 
+#all countries should have reported 34 times (1980-2013, both inclded)
+(c = who %>% group_by(country) %>% summarise(count = n()))
+#however, some countries have not..
+c$country[c$count!= 34]
+
+#Now, after using complete function, lets see again
+(c1 = who1 %>% group_by(country) %>% summarise(count = n()))
+c1$country[c1$count!= 34]
+
+# Understanding fill () ---------------------------------------------------
+#this function allows filling in the missing value with the
+#preceeding available value
+
+#lets create a small dataframe to understand
+name= c("A", "B", "C", "D")
+age = c (12,NA,14, 15)
+gender = c("M", NA, NA, NA)
+(df = data.frame(name, age, gender))
+
+#to fill NA age using fill()
+df %>% #dataframe to be used
+  fill(age)#column where function to be used
+
+#to fill NA gender using fill()
+df %>% 
+  fill(gender)
+
+#Alternatively, to replace a missing value with mean value, we can use indexing 
+df$age[is.na(df$age)] = mean(df$age, na.rm = T)
+df
